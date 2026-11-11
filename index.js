@@ -1,48 +1,16 @@
-//require list
-const mongoose = require('mongoose');
-const express = require('express');
-const cookieparser = require("cookie-parser");
-const cors = require('cors');
-const app = express();
-const userRouters = require("./Routes/UserRouter");
-const songRouters = require("./Routes/SongRoutes");
-const artistRouters = require("./Routes/ArtistRoutes")
-const bodyparser = require("body-parser");
+const mongoose = require("mongoose");
+const config = require("./config");
+const app = require("./app");
 
-app.use(express.json());
-app.use(cookieparser());
-app.use(bodyparser.json());
+mongoose.set("strictQuery", true);
 
-app.use(cors({
-    origin: ["http://127.0.0.1:5173", "http://localhost:3001"],
-})
-);
-
-app.use(bodyparser.urlencoded({
-    extended: false,
-}))
-
-//connection of node and database using mongoose
-// app.use("/user", userRouters);
-app.get("/", (req, res) => {
-    res.send("Hello")
-})
-app.use("/artist", artistRouters)
-app.use("/user", userRouters)
-app.use("/song", songRouters)
-mongoose.set('strictQuery', false);
-mongoose.connect('mongodb://127.0.0.1:27017/music-app',
-    {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-    }
-)
+mongoose
+    .connect(config.mongoUri)
     .then(() => {
-        console.log("database connectd succesfully");
+        console.log("Connected to MongoDB");
+        app.listen(config.port, () => console.log(`API listening on http://localhost:${config.port}`));
     })
     .catch((error) => {
-        console.log("error connecting to database ", error);
-    })
-
-// listening the server at localhost:3000
-app.listen(3000)
+        console.error("Could not connect to MongoDB:", error.message);
+        process.exit(1);
+    });

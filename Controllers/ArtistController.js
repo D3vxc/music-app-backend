@@ -1,108 +1,65 @@
-const jwt = require('jsonwebtoken');
-const secretKey = "secretKey";
-const {
-    CreateArtist,
-    GetArtist,
-    GetArtistById,
-    UpdateArtistById,
-    DeleteArtistById
-} = require("../Services/ArtistService");
+const Artist = require("../Models/Artist");
+const Song = require("../Models/Song");
+const Like = require("../Models/Like");
+const Follow = require("../Models/Follow");
+const { publicUrl, removeFile } = require("../Middleware/upload");
+const { httpError } = require("../Middleware/errors");
+const { escapeRegex, clampInt, ARTIST_PUBLIC } = require("./helpers");
+const { toAccount } = require("./AuthController");
 
+async function listArtists(req, res) {
+    const filter = req.query.q ? { name: new RegExp(escapeRegex(req.query.q), "i") } : {};
+    const limit = clampInt(req.query.limit, 30, 1, 100);
+    const artists = await Artist.find(filter).sort({ createdAt: -1 }).limit(limit).select("name imageUrl bio");
+    res.json(artists);
+}
 
-const ArtistModel = require("../Models/Artist");
+async function getArtist(req, res) {
+    const artist = await Artist.findById(req.params.id).select("name imageUrl bio createdAt");
+    if (!artist) throw httpError(404, "Artist not found");
+    const [songs, followers, playsAgg, following] = await Promise.all([
+        Song.find({ artist: artist._id }).sort({ plays: -1, createdAt: -1 }).populate("artist", ARTIST_PUBLIC),
+        Follow.countDocuments({ artist: artist._id }),
+        Song.aggregate([{ $match: { artist: artist._id } }, { $group: { _id: null, plays: { $sum: "$plays" } } }]),
+        req.auth ? Follow.exists({ account: req.auth.id, artist: artist._id }) : null,
+    ]);
+    res.json({ artist, songs, followers, following: !!following, totalPlays: playsAgg[0]?.plays || 0 });
+}
 
-const CreateArtistController = async (req, res) => {
-    console.log(res);
+// Dashboard numbers for the logged-in artist.
+async function myStats(req, res) {
+    const songs = await Song.find({ artist: req.auth.id }).sort({ createdAt: -1 }).populate("artist", ARTIST_PUBLIC);
+    const ids = songs.map((s) => s._id);
+    const [followers, likeRows] = await Promise.all([
+        Follow.countDocuments({ artist: req.auth.id }),
+        Like.aggregate([{ $match: { song: { $in: ids } } }, { $group: { _id: "$song", likes: { $sum: 1 } } }]),
+    ]);
+    const likes = Object.fromEntries(likeRows.map((r) => [String(r._id), r.likes]));
+    res.json({
+        followers,
+        totalPlays: songs.reduce((sum, s) => sum + s.plays, 0),
+        totalLikes: likeRows.reduce((sum, r) => sum + r.likes, 0),
+        songs: songs.map((s) => ({ ...s.toObject(), likes: likes[String(s._id)] || 0 })),
+    });
+}
+
+async function updateMe(req, res) {
+    const image = req.file;
     try {
-        const data = await CreateArtist(req.body);
-        res.send(data);
-    } catch (error) {
-        res.send(error);
-    }
-};
-
-const GetArtistController = async (req, res) => {
-    try {
-        const data = await GetArtist(req.body);
-        res.send(data);
-    } catch (error) {
-        res.send(error);
-    }
-};
-
-const GetArtistByIdController = async (req, res) => {
-    try {
-        const data = await GetArtistById(req.params.id);
-        res.send(data);
-    } catch (error) {
-        res.send(error);
-    }
-};
-
-const UpdateArtistByIdController = async (req, res) => {
-    // console.log(req.params.id, "----------------------->this")
-    try {
-        const data = await UpdateArtistById(req.params.id, req.body);
-        res.send(data);
-    } catch (error) {
-        res.send(error);
-    }
-};
-
-const DeleteArtistByIdController = async (req, res) => {
-    try {
-        const data = await DeleteArtistById(req.params.id);
-        res.send(data);
-    } catch (error) {
-        res.send(error);
-    }
-};
-
-
-const ArtistLogin = async (req, res) => {
-    try {
-        const Artist = await ArtistModel.findOne({
-            email: req.body.email,
-            password: req.body.password,
-        });
-        if (!Artist) {
-            return res.send("please check your email and password!")
+        const artist = await Artist.findById(req.auth.id);
+        if (!artist) throw httpError(404, "Artist not found");
+        if (req.body.name !== undefined) artist.name = req.body.name;
+        if (req.body.bio !== undefined) artist.bio = req.body.bio;
+        if (image) {
+            removeFile(artist.imageUrl);
+            artist.imageUrl = publicUrl(image);
         }
-        const token = jwt.sign({ id: Artist._id }, secretKey);
-        return res
-            .cookie("access_token", token, {
-                httpOnly: true,
-                secure: false,
-            })
-            .status(200)
-            .json({ message: "Artist Logged In " });
-    }
-    catch (error) {
-        console.log(error)
+        await artist.save();
+        res.json(toAccount(artist, "artist"));
+    } catch (err) {
+        removeFile(publicUrl(image));
+        throw err;
     }
 }
 
-const authorization = (req, res, next) => {
-    const token = req.cookies.access_token;
-    if (!token) {
-        return res.sendstatus(403);
-    }
-    try {
-        const data = jwt.verify(token, secretKey);
-        req.id = data.id;
-        return next();
-    } catch (error) {
-        return res.sendstatus(403);
-    }
-};
-
-
-module.exports = {
-    CreateArtistController,
-    GetArtistController,
-    GetArtistByIdController,
-    UpdateArtistByIdController,
-    DeleteArtistByIdController,
-    ArtistLogin,
-    authorization
-};
+module.exports = { listArtists, getArtist, myStats, updateMe };

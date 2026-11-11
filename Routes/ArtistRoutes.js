@@ -1,27 +1,12 @@
 const router = require("express").Router();
-const {
-    CreateArtistController,
-    GetArtistController,
-    GetArtistByIdController,
-    UpdateArtistByIdController,
-    DeleteArtistByIdController,
-    authorization,
-    ArtistLogin
-} = require("../Controllers/ArtistController");
+const { asyncHandler: h } = require("../Middleware/errors");
+const { requireArtist } = require("../Middleware/auth");
+const { upload, enforceImageSize } = require("../Middleware/upload");
+const c = require("../Controllers/ArtistController");
 
-
-router.post("/add", CreateArtistController);
-router.get("/get", GetArtistController);
-router.get("/get/:id", GetArtistByIdController);
-router.put("/update/:id", UpdateArtistByIdController);
-router.delete("/delete/:id", DeleteArtistByIdController);
-router.post("/Artistlogin", ArtistLogin);
-
-router.get("/Artistlogout", authorization, (req, res) => {
-    return res
-        .clearCookie("access_token")
-        .status(200)
-        .json({ message: "Logged Out" });
-});
+router.get("/", h(c.listArtists));
+router.get("/me/stats", requireArtist, h(c.myStats));
+router.patch("/me", requireArtist, upload.single("image"), enforceImageSize, h(c.updateMe));
+router.get("/:id", h(c.getArtist));
 
 module.exports = router;
