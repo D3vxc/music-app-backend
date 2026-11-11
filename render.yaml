@@ -1,0 +1,18 @@
+# One-click deploy on Render (https://render.com). Set MONGODB_URI (e.g. MongoDB Atlas free tier) in the dashboard.
+services:
+  - type: web
+    name: pulse-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: CLIENT_ORIGINS
+        value: https://d3vxc.github.io
